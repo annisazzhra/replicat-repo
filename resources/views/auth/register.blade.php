@@ -114,7 +114,8 @@
                             <input 
                                 id="password" 
                                 name="password" 
-                                :type="showPassword ? 'text' : 'password'"
+                                type="password"
+                                x-bind:type="showPassword ? 'text' : 'password'"
                                 required
                                 autocomplete="new-password"
                                 class="appearance-none block w-full px-3 py-2 pl-10 pr-10 border @error('password') border-red-300 @else border-gray-300 @enderror rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
@@ -144,7 +145,8 @@
                             <input 
                                 id="password_confirmation" 
                                 name="password_confirmation" 
-                                :type="showConfirmPassword ? 'text' : 'password'"
+                                type="password"
+                                x-bind:type="showConfirmPassword ? 'text' : 'password'"
                                 required
                                 autocomplete="new-password"
                                 class="appearance-none block w-full px-3 py-2 pl-10 pr-10 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
