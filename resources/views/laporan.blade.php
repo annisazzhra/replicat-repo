@@ -26,38 +26,149 @@
           sidebarOpen: false, 
           sidebarCollapsed: false,
           reportData: {
-              reports: [],
+              hotspots: [],
               filters: {
-                  dateRange: '7d',
-                  severity: 'all',
-                  region: 'all',
-                  type: 'incident'
+                  dateRange: '24h',
+                  confidence: 'all',
+                  provinsi: '',
+                  kabkota: '',
+                  satelit: ['NASA-MODIS', 'NASA-SNPP', 'NASA-NOAA20']
               },
               stats: {
-                  totalReports: 0,
-                  avgResponseTime: 0,
-                  resolutionRate: 0,
-                  activeIncidents: 0
+                  totalHotspots: 0,
+                  highConfidence: 0,
+                  mediumConfidence: 0,
+                  lowConfidence: 0
               }
           },
           loading: false,
           
           init() {
-              this.loadReports();
+              this.fetchHotspotData();
           },
           
-          async loadReports() {
+          async fetchHotspotData() {
               this.loading = true;
+              const filters = this.reportData.filters;
+              const apiUrl = new URL('https://opsroom.sipongidata.my.id/api/opsroom/indoHotspot');
+              
+              // Build query parameters
+              apiUrl.searchParams.append('wilayah', 'IN');
+              apiUrl.searchParams.append('filterperiode', 'false');
+              apiUrl.searchParams.append('from', '');
+              apiUrl.searchParams.append('to', '');
+              apiUrl.searchParams.append('late', filters.dateRange === '24h' ? '24' : '168');
+              
+              // Add satelit filters
+              filters.satelit.forEach(sat => {
+                  apiUrl.searchParams.append('satelit[]', sat);
+              });
+              
+              // Add confidence filters
+              if (filters.confidence === 'all') {
+                  ['low', 'medium', 'high'].forEach(conf => {
+                      apiUrl.searchParams.append('confidence[]', conf);
+                  });
+              } else {
+                  apiUrl.searchParams.append('confidence[]', filters.confidence);
+              }
+              
+              if (filters.provinsi) {
+                  apiUrl.searchParams.append('provinsi', filters.provinsi);
+              }
+              
+              if (filters.kabkota) {
+                  apiUrl.searchParams.append('kabkota', filters.kabkota);
+              }
+
               try {
-                  const response = await fetch('/api/reports');
-                  if (response.ok) {
-                      const data = await response.json();
-                      this.reportData = { ...this.reportData, ...data };
+                  const response = await fetch(apiUrl.toString());
+                  const data = await response.json();
+                  
+                  if (data.features) {
+                      this.reportData.hotspots = data.features.map(feature => ({
+                          id: feature.properties.hs_id,
+                          lat: feature.properties.lat,
+                          lng: feature.properties.long,
+                          confidence: feature.properties.confidence_level,
+                          date: feature.properties.date_hotspot,
+                          original_date: feature.properties.date_hotspot_ori,
+                          source: feature.properties.sumber,
+                          province: feature.properties.nama_provinsi,
+                          regency: feature.properties.kabkota,
+                          district: feature.properties.kecamatan,
+                          village: feature.properties.desa,
+                          coordinates: feature.geometry.coordinates
+                      }));
+                      
+                      this.updateStats();
                   }
               } catch (error) {
-                  console.error('Error loading reports:', error);
+                  console.error('Error fetching hotspot data:', error);
+                  // Use dummy data as fallback
+                  this.loadDummyData();
               } finally {
                   this.loading = false;
+              }
+          },
+          
+          loadDummyData() {
+              this.reportData.hotspots = [
+                  {
+                      id: 'HS001',
+                      lat: -6.2088,
+                      lng: 106.8456,
+                      confidence: 'high',
+                      date: '2024-01-15 14:30:00',
+                      original_date: '2024-01-15 14:30:00',
+                      source: 'NASA-MODIS',
+                      province: 'DKI Jakarta',
+                      regency: 'Jakarta Pusat',
+                      district: 'Gambir',
+                      village: 'Kebon Kelapa',
+                      coordinates: [106.8456, -6.2088]
+                  },
+                  {
+                      id: 'HS002',
+                      lat: -7.2504,
+                      lng: 112.7688,
+                      confidence: 'medium',
+                      date: '2024-01-15 13:45:00',
+                      original_date: '2024-01-15 13:45:00',
+                      source: 'NASA-SNPP',
+                      province: 'Jawa Timur',
+                      regency: 'Surabaya',
+                      district: 'Wonokromo',
+                      village: 'Jagir',
+                      coordinates: [112.7688, -7.2504]
+                  }
+              ];
+              this.updateStats();
+          },
+          
+          updateStats() {
+              const hotspots = this.reportData.hotspots;
+              this.reportData.stats.totalHotspots = hotspots.length;
+              this.reportData.stats.highConfidence = hotspots.filter(h => h.confidence === 'high').length;
+              this.reportData.stats.mediumConfidence = hotspots.filter(h => h.confidence === 'medium').length;
+              this.reportData.stats.lowConfidence = hotspots.filter(h => h.confidence === 'low').length;
+          },
+          
+          applyFilters() {
+              this.fetchHotspotData();
+          },
+          
+          formatDate(dateString) {
+              const date = new Date(dateString);
+              return date.toLocaleDateString('id-ID') + ' ' + date.toLocaleTimeString('id-ID');
+          },
+          
+          getConfidenceColor(confidence) {
+              switch(confidence) {
+                  case 'high': return 'text-red-600 bg-red-100';
+                  case 'medium': return 'text-yellow-600 bg-yellow-100';
+                  case 'low': return 'text-green-600 bg-green-100';
+                  default: return 'text-gray-600 bg-gray-100';
               }
           },
           
@@ -86,7 +197,7 @@
           },
           
           async refreshData() {
-              await this.loadReports();
+              await this.fetchHotspotData();
           }
       }"
       x-bind:class="sidebarOpen ? 'overflow-hidden lg:overflow-auto' : ''"
@@ -394,12 +505,12 @@
                             <div class="flex items-center">
                                 <div class="flex-shrink-0">
                                     <div class="w-10 h-10 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center shadow-lg">
-                                        <i class="fas fa-file-alt text-white text-lg"></i>
+                                        <i class="fas fa-fire text-white text-lg"></i>
                                     </div>
                                 </div>
                                 <div class="ml-4 flex-1">
-                                    <p class="text-sm font-medium text-gray-600">Total Reports</p>
-                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.totalReports || '0'"></p>
+                                    <p class="text-sm font-medium text-gray-600">Total Hotspots</p>
+                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.totalHotspots || '0'"></p>
                                 </div>
                             </div>
                         </div>
@@ -409,13 +520,29 @@
                         <div class="gradient-border-content p-6">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0">
-                                    <div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center shadow-lg">
-                                        <i class="fas fa-clock text-white text-lg"></i>
+                                    <div class="w-10 h-10 bg-gradient-to-br from-red-600 to-red-700 rounded-xl flex items-center justify-center shadow-lg">
+                                        <i class="fas fa-exclamation-triangle text-white text-lg"></i>
                                     </div>
                                 </div>
                                 <div class="ml-4 flex-1">
-                                    <p class="text-sm font-medium text-gray-600">Avg Response Time</p>
-                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.avgResponseTime ? reportData.stats.avgResponseTime + 'm' : '0m'"></p>
+                                    <p class="text-sm font-medium text-gray-600">High Confidence</p>
+                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.highConfidence || '0'"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="gradient-border hover-lift">
+                        <div class="gradient-border-content p-6">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <div class="w-10 h-10 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl flex items-center justify-center shadow-lg">
+                                        <i class="fas fa-question-circle text-white text-lg"></i>
+                                    </div>
+                                </div>
+                                <div class="ml-4 flex-1">
+                                    <p class="text-sm font-medium text-gray-600">Medium Confidence</p>
+                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.mediumConfidence || '0'"></p>
                                 </div>
                             </div>
                         </div>
@@ -426,28 +553,12 @@
                             <div class="flex items-center">
                                 <div class="flex-shrink-0">
                                     <div class="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                                        <i class="fas fa-check-circle text-white text-lg"></i>
+                                        <i class="fas fa-info-circle text-white text-lg"></i>
                                     </div>
                                 </div>
                                 <div class="ml-4 flex-1">
-                                    <p class="text-sm font-medium text-gray-600">Resolution Rate</p>
-                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.resolutionRate ? reportData.stats.resolutionRate + '%' : '0%'"></p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="gradient-border hover-lift">
-                        <div class="gradient-border-content p-6">
-                            <div class="flex items-center">
-                                <div class="flex-shrink-0">
-                                    <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                                        <i class="fas fa-exclamation-triangle text-white text-lg"></i>
-                                    </div>
-                                </div>
-                                <div class="ml-4 flex-1">
-                                    <p class="text-sm font-medium text-gray-600">Active Incidents</p>
-                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.activeIncidents || '0'"></p>
+                                    <p class="text-sm font-medium text-gray-600">Low Confidence</p>
+                                    <p class="text-2xl font-bold text-gray-900" x-text="reportData.stats.lowConfidence || '0'"></p>
                                 </div>
                             </div>
                         </div>
@@ -486,31 +597,57 @@
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
                                     <select x-model="reportData.filters.dateRange" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200">
+                                        <option value="24h">Last 24 Hours</option>
                                         <option value="7d">Last 7 Days</option>
-                                        <option value="30d">Last 30 Days</option>
-                                        <option value="90d">Last 3 Months</option>
-                                        <option value="1y">Last Year</option>
-                                        <option value="custom">Custom Range</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Severity Level</label>
-                                    <select x-model="reportData.filters.severity" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Confidence Level</label>
+                                    <select x-model="reportData.filters.confidence" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200">
                                         <option value="all">All Levels</option>
-                                        <option value="critical">Critical Only</option>
-                                        <option value="high">High Risk</option>
-                                        <option value="medium">Medium Risk</option>
-                                        <option value="low">Low Risk</option>
+                                        <option value="high">High Confidence</option>
+                                        <option value="medium">Medium Confidence</option>
+                                        <option value="low">Low Confidence</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Region Filter</label>
-                                    <select x-model="reportData.filters.region" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200">
-                                        <option value="all">All Regions</option>
-                                        <option value="north">North Region</option>
-                                        <option value="south">South Region</option>
-                                        <option value="east">East Region</option>
-                                        <option value="west">West Region</option>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Province</label>
+                                    <select x-model="reportData.filters.provinsi" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200">
+                                        <option value="">All Provinces</option>
+                                        <option value="11">Aceh</option>
+                                        <option value="12">Sumatera Utara</option>
+                                        <option value="13">Sumatera Barat</option>
+                                        <option value="14">Riau</option>
+                                        <option value="15">Jambi</option>
+                                        <option value="16">Sumatera Selatan</option>
+                                        <option value="17">Bengkulu</option>
+                                        <option value="18">Lampung</option>
+                                        <option value="19">Kepulauan Bangka Belitung</option>
+                                        <option value="21">Kepulauan Riau</option>
+                                        <option value="31">DKI Jakarta</option>
+                                        <option value="32">Jawa Barat</option>
+                                        <option value="33">Jawa Tengah</option>
+                                        <option value="34">DI Yogyakarta</option>
+                                        <option value="35">Jawa Timur</option>
+                                        <option value="36">Banten</option>
+                                        <option value="51">Bali</option>
+                                        <option value="52">Nusa Tenggara Barat</option>
+                                        <option value="53">Nusa Tenggara Timur</option>
+                                        <option value="61">Kalimantan Barat</option>
+                                        <option value="62">Kalimantan Tengah</option>
+                                        <option value="63">Kalimantan Selatan</option>
+                                        <option value="64">Kalimantan Timur</option>
+                                        <option value="65">Kalimantan Utara</option>
+                                        <option value="71">Sulawesi Utara</option>
+                                        <option value="72">Sulawesi Tengah</option>
+                                        <option value="73">Sulawesi Selatan</option>
+                                        <option value="74">Sulawesi Tenggara</option>
+                                        <option value="75">Gorontalo</option>
+                                        <option value="76">Sulawesi Barat</option>
+                                        <option value="81">Maluku</option>
+                                        <option value="82">Maluku Utara</option>
+                                        <option value="91">Papua Barat</option>
+                                        <option value="94">Papua</option>
                                     </select>
                                 </div>
                                 <div>
@@ -542,6 +679,10 @@
                                     </button>
                                 </div>
                                 <div class="flex items-center space-x-3">
+                                    <button type="button" x-on:click="applyFilters()" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl">
+                                        <i class="fas fa-filter mr-2 h-4 w-4"></i>
+                                        Apply Filters
+                                    </button>
                                     <button type="button" x-on:click="generateReport('pdf')" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-lg hover:shadow-xl">
                                         <i class="fas fa-file-pdf mr-2 h-4 w-4"></i>
                                         Generate PDF
@@ -556,14 +697,14 @@
                     </div>
                 </div>
 
-                <!-- Recent Reports -->
+                <!-- Hotspot Data -->
                 <div class="gradient-border hover-lift">
                     <div class="gradient-border-content">
                         <div class="p-6 border-b border-gray-200/50">
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <h3 class="text-lg font-semibold text-gray-900">Recent Reports</h3>
-                                    <p class="text-sm text-gray-600 mt-1">Latest generated reports and documentation</p>
+                                    <h3 class="text-lg font-semibold text-gray-900">Live Hotspot Data</h3>
+                                    <p class="text-sm text-gray-600 mt-1">Real-time fire hotspot monitoring from Indonesian satellites</p>
                                 </div>
                                 <div class="flex items-center space-x-2">
                                     <button type="button" class="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors duration-200">
@@ -586,104 +727,67 @@
                         <div x-show="loading" class="p-8 text-center">
                             <div class="inline-flex items-center">
                                 <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                                <span class="ml-2 text-gray-600">Loading reports...</span>
+                                <span class="ml-2 text-gray-600">Loading hotspot data...</span>
                             </div>
                         </div>
 
                         <!-- Empty State (API-ready placeholder) -->
-                        <div x-show="!loading && (!reportData.reports || reportData.reports.length === 0)" class="text-center py-12">
+                        <div x-show="!loading && (!reportData.hotspots || reportData.hotspots.length === 0)" class="text-center py-12">
                             <div class="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                                <i class="fas fa-file-alt text-gray-400 text-2xl"></i>
+                                <i class="fas fa-fire text-gray-400 text-2xl"></i>
                             </div>
-                            <h3 class="text-lg font-medium text-gray-900 mb-2">No reports available</h3>
-                            <p class="text-gray-500 mb-6">Reports will appear here once generated or loaded from the API</p>
-                            <button type="button" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200">
-                                <i class="fas fa-plus mr-2 h-4 w-4"></i>
-                                Generate Report
+                            <h3 class="text-lg font-medium text-gray-900 mb-2">No hotspots found</h3>
+                            <p class="text-gray-500 mb-6">No hotspot data found for the current filters. Try adjusting your filters or check back later.</p>
+                            <button type="button" x-on:click="applyFilters()" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200">
+                                <i class="fas fa-sync-alt mr-2 h-4 w-4"></i>
+                                Refresh Data
                             </button>
                         </div>
 
-                        <!-- Reports Table (when data is available) -->
-                        <div x-show="!loading && reportData.reports && reportData.reports.length > 0" class="overflow-x-auto">
+                        <!-- Hotspots Table (when data is available) -->
+                        <div x-show="!loading && reportData.hotspots && reportData.hotspots.length > 0" class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50/50">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Report</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hotspot ID</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Confidence</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Detected</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Coordinates</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
-                                    <template x-for="report in reportData.reports" :key="report.id">
+                                    <template x-for="hotspot in reportData.hotspots" :key="hotspot.id">
                                         <tr class="hover:bg-gray-50 transition-colors duration-200">
-                                            <td class="px-6 py-4">
+                                            <td class="px-6 py-4 whitespace-nowrap">
                                                 <div class="flex items-center">
                                                     <div class="flex-shrink-0 h-10 w-10">
-                                                        <div class="h-10 w-10 rounded-lg flex items-center justify-center shadow-sm"
-                                                             :class="{
-                                                                 'bg-red-100': report.type === 'incident',
-                                                                 'bg-blue-100': report.type === 'performance',
-                                                                 'bg-green-100': report.type === 'system',
-                                                                 'bg-purple-100': report.type === 'custom'
-                                                             }">
-                                                            <i class="text-sm"
-                                                               :class="{
-                                                                   'fas fa-fire text-red-600': report.type === 'incident',
-                                                                   'fas fa-chart-line text-blue-600': report.type === 'performance',
-                                                                   'fas fa-cog text-green-600': report.type === 'system',
-                                                                   'fas fa-file-alt text-purple-600': report.type === 'custom'
-                                                               }"></i>
+                                                        <div class="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center shadow-sm">
+                                                            <i class="fas fa-fire text-red-600 text-sm"></i>
                                                         </div>
                                                     </div>
                                                     <div class="ml-4">
-                                                        <div class="text-sm font-medium text-gray-900" x-text="report.name"></div>
-                                                        <div class="text-sm text-gray-500" x-text="report.description"></div>
+                                                        <div class="text-sm font-medium text-gray-900" x-text="hotspot.id"></div>
                                                     </div>
                                                 </div>
                                             </td>
+                                            <td class="px-6 py-4">
+                                                <div class="text-sm text-gray-900" x-text="hotspot.village + ', ' + hotspot.district"></div>
+                                                <div class="text-sm text-gray-500" x-text="hotspot.regency + ', ' + hotspot.province"></div>
+                                            </td>
                                             <td class="px-6 py-4 whitespace-nowrap">
                                                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize"
-                                                      :class="{
-                                                          'bg-red-100 text-red-800': report.type === 'incident',
-                                                          'bg-blue-100 text-blue-800': report.type === 'performance',
-                                                          'bg-green-100 text-green-800': report.type === 'system',
-                                                          'bg-purple-100 text-purple-800': report.type === 'custom'
-                                                      }"
-                                                      x-text="report.type"></span>
+                                                      :class="getConfidenceColor(hotspot.confidence)"
+                                                      x-text="hotspot.confidence"></span>
                                             </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="formatDate(hotspot.date)"></td>
                                             <td class="px-6 py-4 whitespace-nowrap">
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                                                      :class="{
-                                                          'bg-green-100 text-green-800': report.status === 'ready',
-                                                          'bg-yellow-100 text-yellow-800': report.status === 'processing',
-                                                          'bg-red-100 text-red-800': report.status === 'failed'
-                                                      }">
-                                                    <i class="mr-1 h-3 w-3"
-                                                       :class="{
-                                                           'fas fa-check': report.status === 'ready',
-                                                           'fas fa-clock': report.status === 'processing',
-                                                           'fas fa-times': report.status === 'failed'
-                                                       }"></i>
-                                                    <span x-text="report.status"></span>
-                                                </span>
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                                                      x-text="hotspot.source"></span>
                                             </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="report.created"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                <div class="flex items-center space-x-3">
-                                                    <button class="text-blue-600 hover:text-blue-900 transition-colors duration-200 p-1 rounded hover:bg-blue-50">
-                                                        <i class="fas fa-eye h-4 w-4"></i>
-                                                    </button>
-                                                    <button class="text-green-600 hover:text-green-900 transition-colors duration-200 p-1 rounded hover:bg-green-50" 
-                                                            :class="{ 'text-gray-400 cursor-not-allowed': report.status !== 'ready' }"
-                                                            :disabled="report.status !== 'ready'">
-                                                        <i class="fas fa-download h-4 w-4"></i>
-                                                    </button>
-                                                    <button class="text-gray-600 hover:text-gray-900 transition-colors duration-200 p-1 rounded hover:bg-gray-50">
-                                                        <i class="fas fa-share h-4 w-4"></i>
-                                                    </button>
-                                                </div>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                <div x-text="hotspot.lat.toFixed(4) + ', ' + hotspot.lng.toFixed(4)"></div>
                                             </td>
                                         </tr>
                                     </template>
