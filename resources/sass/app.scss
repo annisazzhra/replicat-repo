@@ -1,10 +1,8 @@
 // resources/sass/app.scss
 
-// Import Bootstrap 5
-@import 'bootstrap/scss/bootstrap.scss';
-
-// Bootstrap
+// Import Bootstrap 5 using @use (must be first)
 @use 'bootstrap/scss/bootstrap';
+
 /* ====================================================== */
 /* ======= CSS UMUM (Berlaku untuk semua halaman) ======= */
 /* ====================================================== */

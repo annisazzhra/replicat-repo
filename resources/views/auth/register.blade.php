@@ -1,107 +1,215 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full bg-gradient-to-br from-blue-50 to-indigo-100">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Registrasi - Hotspot Vigilance</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    @vite('resources/sass/app.scss')
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body>
-    <div class="form-container">
-        <div class="logo">
-            <img src="{{ asset('images/hotspot_vigilance_logo.png') }}" alt="Hotspot Vigilance Logo" class="img-fluid">
-            <h3>Hotspot Vigilance</h3>
+<body class="h-full" x-data="{ showPassword: false, showConfirmPassword: false }">
+    <div class="min-h-full flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div class="sm:mx-auto sm:w-full sm:max-w-md">
+            <!-- Logo and Title -->
+            <div class="flex flex-col items-center">
+                <div class="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mb-4">
+                    <i class="fas fa-user-plus text-white text-2xl"></i>
+                </div>
+                <h2 class="text-center text-3xl font-bold text-gray-900">
+                    Buat Akun Baru
+                </h2>
+                <p class="mt-2 text-center text-sm text-gray-600">
+                    Bergabunglah dengan Hotspot Vigilance
+                </p>
+            </div>
         </div>
 
-        <p class="text-muted mb-4">Silahkan masukkan detail registrasi Anda</p>
+        <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+            <div class="bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-gray-200">
+                <form method="POST" action="{{ route('register') }}" class="space-y-6">
+                    @csrf
 
-        <form method="POST" action="{{ route('register') }}">
-            @csrf
-
-            <div class="mb-3 text-start">
-                <label for="email" class="form-label">Alamat email</label>
-                <input type="email" class="form-control @error('email') is-invalid @enderror" id="email" name="email" value="{{ old('email') }}" required autocomplete="email" autofocus>
-                @error('email')
-                    <div class="invalid-feedback">
-                        {{ $message }}
-                    </div>
-                @enderror
-            </div>
-
-            <div class="mb-3 text-start">
-                <label for="phone_number" class="form-label">Nomor telp</label>
-                <input type="tel" class="form-control @error('phone_number') is-invalid @enderror" id="phone_number" name="phone_number" value="{{ old('phone_number') }}" required autocomplete="tel">
-                @error('phone_number')
-                    <div class="invalid-feedback">
-                        {{ $message }}
-                    </div>
-                @enderror
-            </div>
-
-            <div class="mb-3 text-start">
-                <label for="password" class="form-label">Buat password</label>
-                <div class="input-group input-group-password">
-                    <input type="password" class="form-control @error('password') is-invalid @enderror" id="password" name="password" required autocomplete="new-password">
-                    <span class="toggle-password" onclick="togglePasswordVisibility('password', 'togglePasswordIcon')">
-                        <i class="fa fa-eye-slash" id="togglePasswordIcon"></i>
-                    </span>
-                    @error('password')
-                        <div class="invalid-feedback">
-                            {{ $message }}
+                    <!-- Name -->
+                    <div>
+                        <label for="name" class="block text-sm font-medium text-gray-700">
+                            Nama Lengkap
+                        </label>
+                        <div class="mt-1 relative">
+                            <input 
+                                id="name" 
+                                name="name" 
+                                type="text" 
+                                value="{{ old('name') }}"
+                                required 
+                                autofocus
+                                autocomplete="name"
+                                class="appearance-none block w-full px-3 py-2 pl-10 border @error('name') border-red-300 @else border-gray-300 @enderror rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="Masukkan nama lengkap"
+                            >
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-user text-gray-400"></i>
+                            </div>
                         </div>
-                    @enderror
-                </div>
-            </div>
-
-            <div class="mb-3 text-start">
-                <label for="password_confirmation" class="form-label">Konfirmasi password</label>
-                <div class="input-group input-group-password">
-                    <input type="password" class="form-control" id="password_confirmation" name="password_confirmation" required autocomplete="new-password">
-                    <span class="toggle-password" onclick="togglePasswordVisibility('password_confirmation', 'togglePasswordConfirmationIcon')">
-                        <i class="fa fa-eye-slash" id="togglePasswordConfirmationIcon"></i>
-                    </span>
-                </div>
-            </div>
-
-            <div class="mb-3 form-check text-start">
-                <input type="checkbox" class="form-check-input @error('terms') is-invalid @enderror" id="terms" name="terms" value="1" {{ old('terms') ? 'checked' : '' }} required>
-                <label class="form-check-label" for="terms">Menerima syarat dan ketentuan pengguna</label>
-                @error('terms')
-                    <div class="invalid-feedback">
-                        {{ $message }}
+                        @error('name')
+                            <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
                     </div>
-                @enderror
+
+                    <!-- Email Address -->
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700">
+                            Alamat Email
+                        </label>
+                        <div class="mt-1 relative">
+                            <input 
+                                id="email" 
+                                name="email" 
+                                type="email" 
+                                value="{{ old('email') }}"
+                                required 
+                                autocomplete="email"
+                                class="appearance-none block w-full px-3 py-2 pl-10 border @error('email') border-red-300 @else border-gray-300 @enderror rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="contoh@email.com"
+                            >
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-envelope text-gray-400"></i>
+                            </div>
+                        </div>
+                        @error('email')
+                            <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <!-- Phone Number -->
+                    <div>
+                        <label for="phone_number" class="block text-sm font-medium text-gray-700">
+                            Nomor Telepon
+                        </label>
+                        <div class="mt-1 relative">
+                            <input 
+                                id="phone_number" 
+                                name="phone_number" 
+                                type="tel" 
+                                value="{{ old('phone_number') }}"
+                                required 
+                                autocomplete="tel"
+                                class="appearance-none block w-full px-3 py-2 pl-10 border @error('phone_number') border-red-300 @else border-gray-300 @enderror rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="08xxxxxxxxxx"
+                            >
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-phone text-gray-400"></i>
+                            </div>
+                        </div>
+                        @error('phone_number')
+                            <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <!-- Password -->
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">
+                            Password
+                        </label>                        <div class="mt-1 relative">
+                            <input 
+                                id="password" 
+                                name="password" 
+                                :type="showPassword ? 'text' : 'password'"
+                                required
+                                autocomplete="new-password"
+                                class="appearance-none block w-full px-3 py-2 pl-10 pr-10 border @error('password') border-red-300 @else border-gray-300 @enderror rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="Minimal 8 karakter"
+                            >
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-lock text-gray-400"></i>
+                            </div>
+                            <button 
+                                type="button" 
+                                @click="showPassword = !showPassword"
+                                class="absolute inset-y-0 right-0 pr-3 flex items-center"
+                            >
+                                <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'" class="text-gray-400 hover:text-gray-600"></i>
+                            </button>
+                        </div>
+                        @error('password')
+                            <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <!-- Confirm Password -->
+                    <div>
+                        <label for="password_confirmation" class="block text-sm font-medium text-gray-700">
+                            Konfirmasi Password
+                        </label>                        <div class="mt-1 relative">
+                            <input 
+                                id="password_confirmation" 
+                                name="password_confirmation" 
+                                :type="showConfirmPassword ? 'text' : 'password'"
+                                required
+                                autocomplete="new-password"
+                                class="appearance-none block w-full px-3 py-2 pl-10 pr-10 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="Ulangi password"
+                            >
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-lock text-gray-400"></i>
+                            </div>
+                            <button 
+                                type="button" 
+                                @click="showConfirmPassword = !showConfirmPassword"
+                                class="absolute inset-y-0 right-0 pr-3 flex items-center"
+                            >
+                                <i class="fas" :class="showConfirmPassword ? 'fa-eye-slash' : 'fa-eye'" class="text-gray-400 hover:text-gray-600"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div>
+                        <button 
+                            type="submit" 
+                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 transform hover:scale-105"
+                        >
+                            <span class="absolute left-0 inset-y-0 flex items-center pl-3">
+                                <i class="fas fa-user-plus text-indigo-300 group-hover:text-indigo-200"></i>
+                            </span>
+                            Buat Akun
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Login Link -->
+                <div class="mt-6">
+                    <div class="relative">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-gray-300"></div>
+                        </div>
+                        <div class="relative flex justify-center text-sm">
+                            <span class="px-2 bg-white text-gray-500">Sudah punya akun?</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-6">
+                        <a 
+                            href="{{ route('login') }}" 
+                            class="w-full flex justify-center py-2 px-4 border border-indigo-300 rounded-md text-sm font-medium text-indigo-600 bg-white hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200"
+                        >
+                            Masuk ke akun
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Back to Home -->
+                <div class="mt-6 text-center">
+                    <a 
+                        href="{{ route('home') }}" 
+                        class="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                    >
+                        <i class="fas fa-arrow-left mr-2"></i>
+                        Kembali ke Beranda
+                    </a>
+                </div>
             </div>
-
-            <button type="submit" class="btn btn-primary w-100 py-2">Daftar</button>
-        </form>
-
-        <p class="mt-4 text-center">
-            Sudah memiliki akun? <a href="{{ route('login') }}" class="text-decoration-none">masuk</a>
-        </p>
-
-        <div class="mt-5 text-center">
-            <a href="{{ route('home') }}" class="btn btn-link text-decoration-none">
-                <img src="{{ asset('images/back_icon.png') }}" alt="Kembali ke Beranda" style="width: 20px; vertical-align: middle; margin-right: 5px;"> Kembali ke Beranda
-            </a>
         </div>
     </div>
-    @vite('resources/js/app.js')
-    <script>
-        function togglePasswordVisibility(fieldId, iconId) {
-            const passwordField = document.getElementById(fieldId);
-            const togglePasswordIcon = document.getElementById(iconId);
-            if (passwordField.type === 'password') {
-                passwordField.type = 'text';
-                togglePasswordIcon.classList.remove('fa-eye-slash');
-                togglePasswordIcon.classList.add('fa-eye');
-            } else {
-                passwordField.type = 'password';
-                togglePasswordIcon.classList.remove('fa-eye');
-                togglePasswordIcon.classList.add('fa-eye-slash');
-            }
-        }
-    </script>
 </body>
 </html>

@@ -109,6 +109,24 @@ Route::post('/email/verification-notification', function (Illuminate\Http\Reques
 // 2. Sudah memverifikasi emailnya (middleware 'verified')
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', function () {
-        return 'Selamat datang di Dashboard! Anda sudah berhasil login.';
+        return view('dashboard'); // Menampilkan halaman dashboard
     })->name('dashboard');
 });
+
+/* ======================================= */
+/* ======= RUTE UNTUK TEST TAILWIND CSS ======= */
+/* ======================================= */
+Route::get('/tailwind-test', function () {
+    return view('tailwind-test');
+})->name('tailwind.test');
+
+/* ======================================= */
+/* ======= RUTE PREVIEW LOGIN/REGISTER ======= */
+/* ======================================= */
+Route::get('/login-preview', function () {
+    return view('auth.login');
+})->name('login.preview');
+
+Route::get('/register-preview', function () {
+    return view('auth.register');
+})->name('register.preview');
