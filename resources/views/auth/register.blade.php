@@ -8,7 +8,20 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="h-full" x-data="{ showPassword: false, showConfirmPassword: false }">
+<body class="h-full" x-data="{ 
+    showPassword: false, 
+    showConfirmPassword: false,
+    
+    submitForm() {
+        // Debug form data
+        const formData = new FormData(document.querySelector('form'));
+        console.log('Form data being submitted:');
+        for (let [key, value] of formData.entries()) {
+            console.log(key, value);
+        }
+        return true; // Allow form submission
+    }
+}">
     <div class="min-h-full flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div class="sm:mx-auto sm:w-full sm:max-w-md">
             <!-- Logo and Title -->
@@ -23,11 +36,32 @@
                     Bergabunglah dengan Hotspot Vigilance
                 </p>
             </div>
-        </div>
-
-        <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        </div>        <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
             <div class="bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-gray-200">
-                <form method="POST" action="{{ route('register') }}" class="space-y-6">
+                
+                <!-- Display any session errors -->
+                @if($errors->any())
+                    <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                        <div class="text-sm text-red-600">
+                            <ul class="list-disc list-inside">
+                                @foreach($errors->all() as $error)
+                                    <li>{{ $error }}</li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Display success message -->
+                @if(session('success'))
+                    <div class="mb-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                        <div class="text-sm text-green-600">
+                            {{ session('success') }}
+                        </div>
+                    </div>
+                @endif
+                
+                <form method="POST" action="{{ route('register') }}" class="space-y-6" @submit="submitForm()">
                     @csrf
 
                     <!-- Name -->

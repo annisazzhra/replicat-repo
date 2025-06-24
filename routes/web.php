@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\RegisterController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\HotspotController;
 
 
 /*
@@ -16,6 +17,15 @@ use App\Http\Controllers\ProfileController;
 | grup middleware "web". Buat sesuatu yang hebat!
 |
 */
+
+/* ======================================= */
+/* ======= NASA FIRMS API ROUTES ======= */
+/* ======================================= */
+Route::prefix('api/hotspots')->group(function () {
+    Route::get('/nasa-data', [HotspotController::class, 'getNASAData'])->name('hotspots.nasa-data');
+    Route::get('/stats', [HotspotController::class, 'getStats'])->name('hotspots.stats');
+    Route::get('/notifications', [HotspotController::class, 'getNotifications'])->name('hotspots.notifications');
+});
 
 /* ======================================= */
 /* ======= RUTE HALAMAN UTAMA / BERANDA ======= */
@@ -130,3 +140,29 @@ Route::get('/login-preview', function () {
 Route::get('/register-preview', function () {
     return view('auth.register');
 })->name('register.preview');
+
+/* ======================================= */
+/* ======= TEST ROUTES FOR DEBUGGING ======= */
+/* ======================================= */
+Route::get('/test-register', function () {
+    try {
+        $user = \App\Models\User::create([
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'phone_number' => '081234567890',
+            'password' => \Hash::make('password123'),
+        ]);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'User berhasil dibuat',
+            'user' => $user
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+});

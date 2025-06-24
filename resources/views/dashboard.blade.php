@@ -11,7 +11,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         * { font-family: 'Inter', sans-serif; }
@@ -29,74 +33,571 @@
           sidebarOpen: false,
           sidebarCollapsed: false,
           refreshing: false,
+          fetchingNASA: false,
           stats: {
               activeHotspots: 0,
               alertsToday: 0,
-              coverage: 0,
-              responseTime: 0
+              coverage: 85,
+              responseTime: 15
           },
+          hotspots: [],
           notifications: [],
           realtimeStatus: 'connecting',
           lastUpdate: null,
           
-          // Initialize dashboard
-          init() {
-              this.loadDashboardData();
-              this.connectWebSocket();
-              setInterval(() => this.loadDashboardData(), 30000); // Refresh every 30 seconds
+          // Map functionality
+          map: null,
+          mapInitialized: false,
+          hotspotMarkers: [],
+          
+          // Indonesian Hotspot API Configuration
+          indoHotspotConfig: {
+              API_URL: 'https://opsroom.sipongidata.my.id/api/opsroom/indoHotspot',
+              wilayah: 'IN',
+              filterperiode: false,
+              from: '',
+              to: '',
+              late: 24,
+              satelit: ['NASA-MODIS', 'NASA-SNPP', 'NASA-NOAA20'],
+              confidence: ['low', 'medium', 'high'],
+              provinsi: '',
+              kabkota: ''
           },
           
-          // Load dashboard data from API
-          async loadDashboardData() {
+          // Initialize dashboard
+          init() {
+              console.log('Initializing dashboard with Indonesian Hotspot API...');
+              this.loadIndoHotspotData();
+              this.loadNotifications();
+              setInterval(() => this.loadIndoHotspotData(), 300000); // Refresh every 5 minutes
+              // Remove notification auto-refresh since we generate them from hotspot data
+          },
+          
+          // Load Indonesian Hotspot data
+          async loadIndoHotspotData() {
               this.refreshing = true;
+              console.log('Starting to load Indonesian Hotspot data...');
+              
               try {
-                  // Replace with actual API endpoints
-                  const response = await fetch('/api/dashboard/stats');
-                  if (response.ok) {
-                      const data = await response.json();
-                      this.stats = data.stats || {
-                          activeHotspots: 0,
-                          alertsToday: 0,
-                          coverage: 0,
-                          responseTime: 0
-                      };
-                      this.notifications = data.notifications || [];
-                      this.lastUpdate = new Date().toLocaleTimeString('id-ID');
+                  // Build query parameters for Indonesian Hotspot API
+                  const params = new URLSearchParams({
+                      wilayah: this.indoHotspotConfig.wilayah,
+                      filterperiode: this.indoHotspotConfig.filterperiode,
+                      from: this.indoHotspotConfig.from,
+                      to: this.indoHotspotConfig.to,
+                      late: this.indoHotspotConfig.late,
+                      provinsi: this.indoHotspotConfig.provinsi,
+                      kabkota: this.indoHotspotConfig.kabkota
+                  });
+                  
+                  // Add multiple satelit and confidence parameters
+                  this.indoHotspotConfig.satelit.forEach(sat => {
+                      params.append('satelit[]', sat);
+                  });
+                  
+                  this.indoHotspotConfig.confidence.forEach(conf => {
+                      params.append('confidence[]', conf);
+                  });
+                  
+                  const apiUrl = `${this.indoHotspotConfig.API_URL}?${params.toString()}`;
+                  console.log('Fetching from API URL:', apiUrl);
+                  
+                  // Try to fetch with CORS enabled, fallback to no-cors if needed
+                  let response;
+                  try {
+                      response = await fetch(apiUrl, {
+                          method: 'GET',
+                          headers: {
+                              'Accept': 'application/json',
+                          },
+                          mode: 'cors'
+                      });
+                  } catch (corsError) {
+                      console.warn('CORS error, trying with no-cors mode:', corsError);
+                      response = await fetch(apiUrl, {
+                          method: 'GET',
+                          mode: 'no-cors'
+                      });
+                  }
+                  
+                  console.log('API Response status:', response.status);
+                  console.log('API Response type:', response.type);
+                  
+                  if (response.type === 'opaque') {
+                      // No-cors mode - we can't read the response
+                      console.warn('API returned opaque response (no-cors mode). Using fallback data.');
+                      throw new Error('CORS blocked - cannot read API response');
+                  }
+                  
+                  if (!response.ok) {
+                      throw new Error(`HTTP error! status: ${response.status}`);
+                  }
+                  
+                  const result = await response.json();
+                  console.log('API Response data:', result);
+                  
+                  if (result && (result.features || result.data)) {
+                      // Handle GeoJSON format or direct data array
+                      const dataToProcess = result.features || result.data || result;
+                      this.hotspots = this.processIndoHotspotData(dataToProcess);
+                      this.updateStatsFromIndoData(dataToProcess);
                       this.realtimeStatus = 'connected';
+                      this.lastUpdate = new Date().toLocaleTimeString('id-ID');
+                      console.log(`Successfully loaded ${this.hotspots.length} hotspots from Indonesian Hotspot API`);
+                      
+                      // Generate notifications from new data
+                      this.generateNotificationsFromData(this.hotspots);
+                  } else {
+                      console.warn('No data found in API response:', result);
+                      throw new Error('No data found in API response');
                   }
               } catch (error) {
-                  console.error('Error loading dashboard data:', error);
+                  console.error('Error loading Indonesian Hotspot data:', error);
                   this.realtimeStatus = 'error';
+                  // Only load fallback data if API completely fails
+                  console.log('Loading fallback data due to API error...');
+                  await this.loadFallbackData();
               } finally {
                   this.refreshing = false;
               }
           },
           
-          // Connect to WebSocket for real-time updates
-          connectWebSocket() {
-              try {
-                  // Replace with actual WebSocket endpoint
-                  const ws = new WebSocket('wss://your-websocket-endpoint');
-                  ws.onopen = () => { this.realtimeStatus = 'connected'; };
-                  ws.onmessage = (event) => {
-                      const data = JSON.parse(event.data);
-                      if (data.type === 'stats_update') {
-                          this.stats = data.stats;
-                      } else if (data.type === 'new_alert') {
-                          this.notifications.unshift(data.alert);
-                      }
-                  };
-                  ws.onclose = () => { this.realtimeStatus = 'disconnected'; };
-                  ws.onerror = () => { this.realtimeStatus = 'error'; };
-              } catch (error) {
-                  this.realtimeStatus = 'error';
+          // Process Indonesian Hotspot API data into standard format
+          processIndoHotspotData(data) {
+              console.log('Processing Indonesian hotspot data:', data);
+              
+              // Handle GeoJSON format
+              let hotspotArray = data;
+              
+              // If data is GeoJSON features array
+              if (Array.isArray(data) && data.length > 0 && data[0].type === 'Feature') {
+                  console.log('Detected GeoJSON format with features');
+                  hotspotArray = data;
               }
+              // If data is wrapped in another object
+              else if (data && typeof data === 'object' && !Array.isArray(data)) {
+                  if (data.features) hotspotArray = data.features;
+                  else if (data.data) hotspotArray = data.data;
+                  else if (data.result) hotspotArray = data.result;
+              }
+              
+              if (!Array.isArray(hotspotArray)) {
+                  console.warn('Expected array data, received:', typeof hotspotArray, hotspotArray);
+                  return [];
+              }
+              
+              console.log(`Processing ${hotspotArray.length} hotspot records...`);
+              
+              return hotspotArray.map((item, index) => {
+                  // Handle GeoJSON feature format
+                  let properties = item;
+                  let coordinates = [0, 0];
+                  
+                  if (item.type === 'Feature') {
+                      properties = item.properties || {};
+                      coordinates = item.geometry?.coordinates || [0, 0];
+                  }
+                  
+                  // Extract data from properties (GeoJSON format)
+                  const confidence = this.parseConfidenceValue(properties.confidence || properties.confidence_level || 0);
+                  const brightness = parseFloat(properties.brightness || properties.bright_ti4 || properties.bright_ti5 || 0);
+                  const frp = parseFloat(properties.frp || properties.fire_radiative_power || 0);
+                  
+                  // Coordinates from GeoJSON geometry or fallback to properties
+                  const latitude = coordinates[1] || parseFloat(properties.lat || properties.latitude || 0);
+                  const longitude = coordinates[0] || parseFloat(properties.long || properties.longitude || 0);
+                  
+                  // Handle date/time from Indonesian API format
+                  let acqDate = properties.date_hotspot_ori || properties.date_hotspot || properties.acq_date;
+                  let acqTime = '';
+                  
+                  if (acqDate) {
+                      try {
+                          const dateObj = new Date(acqDate);
+                          acqDate = dateObj.toISOString().slice(0, 10);
+                          acqTime = dateObj.toTimeString().slice(0, 8);
+                      } catch (e) {
+                          acqDate = new Date().toISOString().slice(0, 10);
+                          acqTime = new Date().toTimeString().slice(0, 8);
+                      }
+                  } else {
+                      acqDate = new Date().toISOString().slice(0, 10);
+                      acqTime = new Date().toTimeString().slice(0, 8);
+                  }
+                  
+                  const processedItem = {
+                      id: properties.hs_id || properties.id || index + 1,
+                      latitude: latitude,
+                      longitude: longitude,
+                      brightness: brightness || 300, // Default if not available
+                      confidence: confidence,
+                      frp: frp || 0,
+                      acq_date: acqDate,
+                      acq_time: acqTime,
+                      satellite: properties.sumber || properties.satelit || properties.satellite || 'Unknown',
+                      instrument: 'MODIS', // Default for Indonesian API
+                      severity: this.calculateSeverity(confidence, brightness || 300, frp || 0),
+                      is_active: this.isHotspotActive({ acq_date: acqDate }),
+                      provinsi: properties.nama_provinsi || properties.provinsi || '',
+                      kabupaten: properties.kabkota || properties.kabupaten || '',
+                      kecamatan: properties.kecamatan || '',
+                      desa: properties.desa || '',
+                      kawasan: properties.kawasan || '',
+                      confidence_level: properties.confidence_level || ''
+                  };
+                  
+                  console.log(`Processed hotspot ${index + 1}:`, processedItem);
+                  return processedItem;
+              });
+          },
+          
+          // Parse confidence value from various formats
+          parseConfidenceValue(confidence) {
+              if (typeof confidence === 'string') {
+                  const lowerConf = confidence.toLowerCase();
+                  if (lowerConf === 'high' || lowerConf === 'tinggi') return 85;
+                  if (lowerConf === 'medium' || lowerConf === 'sedang') return 65;
+                  if (lowerConf === 'low' || lowerConf === 'rendah') return 45;
+                  return parseFloat(confidence) || 50;
+              }
+              return parseFloat(confidence) || 50;
+          },
+          
+          // Calculate severity based on confidence, brightness, and FRP
+          calculateSeverity(confidence, brightness, frp) {
+              const confScore = confidence >= 80 ? 3 : confidence >= 60 ? 2 : 1;
+              const brightScore = brightness >= 350 ? 3 : brightness >= 320 ? 2 : 1;
+              const frpScore = frp >= 50 ? 3 : frp >= 20 ? 2 : 1;
+              
+              const totalScore = confScore + brightScore + frpScore;
+              
+              if (totalScore >= 8) return 'high';
+              if (totalScore >= 5) return 'medium';
+              return 'low';
+          },
+          
+          // Check if hotspot is currently active
+          isHotspotActive(item) {
+              try {
+                  const acqDate = new Date(item.acq_date || item.tanggal || item.date);
+                  const now = new Date();
+                  const diffHours = (now - acqDate) / (1000 * 60 * 60);
+                  return diffHours <= 24; // Consider active if detected within last 24 hours
+              } catch (error) {
+                  console.warn('Error parsing date for hotspot activity:', error);
+                  return true; // Default to active if date parsing fails
+              }
+          },
+          
+          // Update statistics from Indonesian API data
+          updateStatsFromIndoData(data) {
+              if (!Array.isArray(data)) {
+                  this.stats.activeHotspots = 0;
+                  this.stats.alertsToday = 0;
+                  return;
+              }
+              
+              const processedData = this.processIndoHotspotData(data);
+              this.stats.activeHotspots = processedData.filter(h => h.is_active).length;
+              this.stats.alertsToday = processedData.filter(h => h.severity === 'high').length;
+              // Coverage and response time remain static
+              this.stats.coverage = 85;
+              this.stats.responseTime = 15;
+          },
+          
+          // Generate notifications from hotspot data
+          generateNotificationsFromData(hotspotsData) {
+              const notifications = [];
+              const highSeverityHotspots = hotspotsData.filter(h => h.severity === 'high' && h.is_active);
+              const mediumSeverityHotspots = hotspotsData.filter(h => h.severity === 'medium' && h.is_active);
+              
+              // High severity notifications
+              if (highSeverityHotspots.length > 0) {
+                  const latestHotspot = highSeverityHotspots[0];
+                  notifications.push({
+                      id: 1,
+                      message: `High severity hotspot detected in ${latestHotspot.provinsi || 'Indonesia'}${latestHotspot.kabupaten ? ', ' + latestHotspot.kabupaten : ''} (Confidence: ${latestHotspot.confidence}%)`,
+                      time: new Date().toLocaleTimeString('id-ID'),
+                      severity: 'high',
+                      type: 'hotspot'
+                  });
+              }
+              
+              // System update notification
+              notifications.push({
+                  id: 2,
+                  message: `Indonesian Hotspot API updated - ${hotspotsData.length} hotspots loaded from ${this.getSatelliteTypes().join(', ')}`,
+                  time: new Date().toLocaleTimeString('id-ID'),
+                  severity: 'low',
+                  type: 'system'
+              });
+              
+              // Medium severity cluster notification
+              if (mediumSeverityHotspots.length > 3) {
+                  notifications.push({
+                      id: 3,
+                      message: `${mediumSeverityHotspots.length} medium confidence hotspots detected across ${this.getProvinceCount()} provinces - monitoring required`,
+                      time: new Date().toLocaleTimeString('id-ID'),
+                      severity: 'medium',
+                      type: 'hotspot'
+                  });
+              }
+              
+              // Coverage notification
+              if (this.getProvinceCount() > 0) {
+                  notifications.push({
+                      id: 4,
+                      message: `Monitoring coverage active in ${this.getProvinceCount()} Indonesian provinces with average confidence ${this.calculateAverageConfidence()}%`,
+                      time: new Date().toLocaleTimeString('id-ID'),
+                      severity: 'low',
+                      type: 'system'
+                  });
+              }
+              
+              this.notifications = notifications;
+          },
+
+          // Load fallback data when API fails
+          async loadFallbackData() {
+              console.log('Loading fallback data...');
+              this.hotspots = this.generateMockHotspots(5); // Minimal fallback data
+              this.updateStats();
+              this.realtimeStatus = 'error';
+          },
+
+          // Load notifications from Indonesian hotspot data
+          async loadNotifications() {
+              // Don't fetch from backend, use notifications generated from hotspot data
+              // This will be populated by generateNotificationsFromData() when hotspot data loads
+              if (this.notifications.length === 0) {
+                  this.generateMockNotifications(); // Only as initial fallback
+              }
+          },
+          
+          // Generate mock hotspot data with realistic coordinates
+          generateMockHotspots(count) {
+              const mockHotspots = [];
+              const sumatraCoords = {
+                  lat: { min: -5.5, max: 3.5 },
+                  lng: { min: 95.0, max: 109.0 }
+              };
+              
+              for (let i = 0; i < count; i++) {
+                  const lat = (Math.random() * (sumatraCoords.lat.max - sumatraCoords.lat.min) + sumatraCoords.lat.min).toFixed(6);
+                  const lng = (Math.random() * (sumatraCoords.lng.max - sumatraCoords.lng.min) + sumatraCoords.lng.min).toFixed(6);
+                  const brightness = Math.floor(Math.random() * 100) + 300;
+                  const confidence = Math.floor(Math.random() * 40) + 60;
+                  const frp = (Math.random() * 50 + 5).toFixed(1);
+                  
+                  mockHotspots.push({
+                      id: i + 1,
+                      latitude: parseFloat(lat),
+                      longitude: parseFloat(lng),
+                      brightness: brightness,
+                      confidence: confidence,
+                      frp: parseFloat(frp),
+                      acq_date: new Date().toISOString().slice(0, 10),
+                      acq_time: new Date().toTimeString().slice(0, 8),
+                      satellite: ['Terra', 'Aqua', 'NPP'][Math.floor(Math.random() * 3)],
+                      instrument: 'MODIS',
+                      severity: confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low',
+                      is_active: Math.random() > 0.2
+                  });
+              }
+              return mockHotspots;
+          },
+          
+          // Update statistics based on hotspot data
+          updateStats() {
+              this.stats.activeHotspots = this.hotspots.filter(h => h.is_active).length;
+              this.stats.alertsToday = this.hotspots.filter(h => h.severity === 'high').length;
+              // Coverage and response time remain static for demo
+          },
+          
+          // Generate mock notifications
+          generateMockNotifications() {
+              this.notifications = [
+                  {
+                      id: 1,
+                      message: 'New high confidence hotspot detected in Riau',
+                      time: new Date().toLocaleTimeString('id-ID'),
+                      severity: 'high',
+                      type: 'hotspot'
+                  },
+                  {
+                      id: 2,
+                      message: 'Indonesian Hotspot data successfully updated',
+                      time: new Date(Date.now() - 300000).toLocaleTimeString('id-ID'),
+                      severity: 'low',
+                      type: 'system'
+                  },
+                  {
+                      id: 3,
+                      message: 'Medium confidence hotspot cluster detected',
+                      time: new Date(Date.now() - 600000).toLocaleTimeString('id-ID'),
+                      severity: 'medium',
+                      type: 'hotspot'
+                  }
+              ];
+          },
+          
+          // Load demo data as fallback (deprecated - use loadFallbackData instead)
+          loadDemoData() {
+              this.loadFallbackData();
+          },
+          
+          // Force refresh Indonesian Hotspot data
+          async refreshNASAData() {
+              this.fetchingNASA = true;
+              await this.loadIndoHotspotData();
+              await this.loadNotifications();
+              this.fetchingNASA = false;
           },
           
           // Manual refresh
           async refreshData() {
-              await this.loadDashboardData();
-          }
+              await this.loadIndoHotspotData();
+              await this.loadNotifications();
+          },
+          
+          // Get severity badge color
+          getSeverityColor(severity) {
+              switch(severity) {
+                  case 'high': return 'bg-red-100 text-red-800';
+                  case 'medium': return 'bg-yellow-100 text-yellow-800';
+                  case 'low': return 'bg-green-100 text-green-800';
+                  default: return 'bg-gray-100 text-gray-800';
+              }
+          },
+          
+          // Get hotspot details for display
+          getHotspotDetails(hotspot) {
+              return {
+                  coordinates: `${hotspot.latitude.toFixed(4)}, ${hotspot.longitude.toFixed(4)}`,
+                  timeAgo: this.getTimeAgo(hotspot.acq_date, hotspot.acq_time),
+                  confidenceLevel: this.getConfidenceLevel(hotspot.confidence),
+                  satelliteInfo: `${hotspot.satellite} (${hotspot.instrument})`
+              };
+          },
+          
+          // Calculate time ago from acquisition date/time
+          getTimeAgo(date, time) {
+              try {
+                  const acqDateTime = new Date(`${date}T${time}`);
+                  const now = new Date();
+                  const diffMs = now - acqDateTime;
+                  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                  const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                  
+                  if (diffHours > 24) {
+                      const diffDays = Math.floor(diffHours / 24);
+                      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                  } else if (diffHours > 0) {
+                      return `${diffHours}h ${diffMins}m ago`;
+                  } else {
+                      return `${diffMins}m ago`;
+                  }
+              } catch (e) {
+                  return 'Recently';
+              }
+          },
+          
+          // Get confidence level description
+          getConfidenceLevel(confidence) {
+              if (confidence >= 80) return 'Very High';
+              if (confidence >= 60) return 'High';
+              if (confidence >= 40) return 'Medium';
+              return 'Low';
+          },
+
+          // Export hotspot data
+          exportData() {
+              if (this.hotspots.length === 0) {
+                  alert('No data to export');
+                  return;
+              }
+              
+              const csvContent = this.convertToCSV(this.hotspots);
+              const blob = new Blob([csvContent], { type: 'text/csv' });
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `indo_hotspots_${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+              window.URL.revokeObjectURL(url);
+          },
+          
+          // Convert hotspots to CSV format
+          convertToCSV(data) {
+              const headers = ['ID', 'Latitude', 'Longitude', 'Brightness', 'Confidence', 'FRP', 'Date', 'Time', 'Satellite', 'Severity', 'Provinsi', 'Kabupaten', 'Kecamatan', 'Desa'];
+              const csvRows = [headers.join(',')];
+              
+              data.forEach(hotspot => {
+                  const row = [
+                      hotspot.id,
+                      hotspot.latitude,
+                      hotspot.longitude,
+                      hotspot.brightness || 'N/A',
+                      hotspot.confidence,
+                      hotspot.frp || 'N/A',
+                      hotspot.acq_date,
+                      hotspot.acq_time,
+                      hotspot.satellite || 'Unknown',
+                      hotspot.severity,
+                      hotspot.provinsi || 'N/A',
+                      hotspot.kabupaten || 'N/A',
+                      hotspot.kecamatan || 'N/A',
+                      hotspot.desa || 'N/A'
+                  ];
+                  csvRows.push(row.join(','));
+              });
+              
+              return csvRows.join('\n');
+          },
+
+          // Format coordinates for display
+          formatCoordinates(lat, lng) {
+              return `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}`;
+          },
+
+          // Calculate risk analysis
+          calculateRisk() {
+              const totalHotspots = this.hotspots.length;
+              const highSeverity = this.hotspots.filter(h => h.severity === 'high').length;
+              const mediumSeverity = this.hotspots.filter(h => h.severity === 'medium').length;
+              
+              return {
+                  high: highSeverity,
+                  medium: mediumSeverity,
+                  low: totalHotspots - highSeverity - mediumSeverity
+              };
+          },
+
+          // Calculate average confidence
+          calculateAverageConfidence() {
+              if (this.hotspots.length === 0) return 0;
+              const totalConfidence = this.hotspots.reduce((sum, h) => sum + parseFloat(h.confidence || 0), 0);
+              return Math.round(totalConfidence / this.hotspots.length);
+          },
+
+          // Calculate average brightness
+          calculateAverageBrightness() {
+              if (this.hotspots.length === 0) return 0;
+              const totalBrightness = this.hotspots.reduce((sum, h) => sum + parseFloat(h.brightness || 0), 0);
+              return Math.round(totalBrightness / this.hotspots.length);
+          },
+
+          // Get unique satellite types
+          getSatelliteTypes() {
+              const satellites = [...new Set(this.hotspots.map(h => h.satellite).filter(s => s && s !== 'Unknown'))];
+              return satellites.length > 0 ? satellites : ['No Data'];
+          },
+
+          // Get province count
+          getProvinceCount() {
+              const provinces = [...new Set(this.hotspots.map(h => h.provinsi).filter(p => p && p.trim() !== ''))];
+              return provinces.length || 0;
+          },
       }">
 
     <!-- Dashboard Sidebar -->
@@ -462,15 +963,35 @@
                         <div class="flex items-center space-x-4">
                             <div class="flex items-center space-x-2 px-4 py-2 bg-green-50 rounded-xl border border-green-200">
                                 <div class="flex items-center space-x-1">
-                                    <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                                    <span class="text-sm text-green-700 font-medium">System Online</span>
+                                    <div class="w-2 h-2 rounded-full animate-pulse" :class="{
+                                        'bg-green-400': realtimeStatus === 'connected',
+                                        'bg-yellow-400': realtimeStatus === 'connecting',
+                                        'bg-red-400': realtimeStatus === 'error'
+                                    }"></div>
+                                    <span class="text-sm font-medium" :class="{
+                                        'text-green-700': realtimeStatus === 'connected',
+                                        'text-yellow-700': realtimeStatus === 'connecting',
+                                        'text-red-700': realtimeStatus === 'error'
+                                    }" x-text="realtimeStatus === 'connected' ? 'Indo Hotspot Live' : 
+                                               realtimeStatus === 'connecting' ? 'Connecting...' : 'Connection Error'"></span>
                                 </div>
                             </div>
+                            <button type="button" @click="refreshNASAData()" 
+                                    :disabled="fetchingNASA"
+                                    class="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1">
+                                <i class="fas fa-satellite mr-2" :class="{ 'animate-spin': fetchingNASA }"></i>
+                                <span x-text="fetchingNASA ? 'Fetching Hotspots...' : 'Fetch Indonesian API'"></span>
+                            </button>
                             <button type="button" @click="refreshData()" 
                                     class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
                                     :class="{ 'animate-pulse': refreshing }">
                                 <i class="fas fa-sync-alt mr-2" :class="{ 'animate-spin': refreshing }"></i>
-                                <span x-text="refreshing ? 'Refreshing...' : 'Refresh Data'"></span>
+                                <span x-text="refreshing ? 'Refreshing...' : 'Refresh All'"></span>
+                            </button>
+                            <button type="button" @click="loadIndoHotspotData()" 
+                                    class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1">
+                                <i class="fas fa-globe-asia mr-2"></i>
+                                <span>Direct API Call</span>
                             </button>
                         </div>
                     </div>
@@ -610,15 +1131,59 @@
                                     </div>
                                 </div>
                                 <div class="p-6">
-                                    <div class="bg-gradient-to-br from-green-50 via-blue-50 to-red-50 rounded-xl h-80 flex items-center justify-center border border-gray-100">
-                                        <div class="text-center">
-                                            <i class="fas fa-map-marked-alt text-5xl text-gray-300 mb-4"></i>
-                                            <p class="text-lg font-medium text-gray-600">Interactive Map Loading...</p>
-                                            <p class="text-sm text-gray-500 mt-2">Connecting to satellite data stream</p>
-                                            <div class="mt-4">
-                                                <div class="w-16 h-1 bg-gray-200 rounded-full mx-auto overflow-hidden">
-                                                    <div class="w-full h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full animate-pulse"></div>
+                                    <!-- Map Preview with Stats -->
+                                    <div class="bg-gradient-to-br from-green-50 via-blue-50 to-red-50 rounded-xl border border-gray-100 overflow-hidden">
+                                        <!-- Map Header -->
+                                        <div class="bg-white/80 backdrop-blur-sm p-4 border-b border-gray-200">
+                                            <div class="flex items-center justify-between">
+                                                <div class="flex items-center space-x-4">
+                                                    <div class="text-center">
+                                                        <div class="text-lg font-bold text-gray-900" x-text="hotspots.length"></div>
+                                                        <div class="text-xs text-gray-500">Active Hotspots</div>
+                                                    </div>
+                                                    <div class="text-center">
+                                                        <div class="text-lg font-bold text-blue-600" x-text="getSatelliteTypes().length"></div>
+                                                        <div class="text-xs text-gray-500">Satellites</div>
+                                                    </div>
+                                                    <div class="text-center">
+                                                        <div class="text-lg font-bold text-green-600" x-text="getProvinceCount()"></div>
+                                                        <div class="text-xs text-gray-500">Provinces</div>
+                                                    </div>
                                                 </div>
+                                                <div class="flex items-center space-x-2">
+                                                    <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                                                    <span class="text-xs text-gray-500">Live Data</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Map Placeholder -->
+                                        <div class="h-64 flex items-center justify-center">
+                                            <div class="text-center">
+                                                <i class="fas fa-map-marked-alt text-5xl text-gray-300 mb-4"></i>
+                                                <p class="text-lg font-medium text-gray-600">Interactive Map</p>
+                                                <p class="text-sm text-gray-500 mt-2">
+                                                    <span x-show="hotspots.length > 0" x-text="'Displaying ' + hotspots.length + ' hotspots'"></span>
+                                                    <span x-show="hotspots.length === 0">No hotspots to display</span>
+                                                </p>
+                                                <button @click="window.location.href='/peta'" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
+                                                    <i class="fas fa-external-link-alt mr-2"></i>
+                                                    Open Full Map
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <!-- Recent Hotspot Locations -->
+                                        <div x-show="hotspots.length > 0" class="bg-white/80 backdrop-blur-sm p-4 border-t border-gray-200">
+                                            <h4 class="text-sm font-medium text-gray-900 mb-3">Recent Locations</h4>
+                                            <div class="grid grid-cols-2 gap-3">
+                                                <template x-for="hotspot in hotspots.slice(0, 4)" :key="hotspot.id">
+                                                    <div class="text-xs p-2 bg-gray-50 rounded">
+                                                        <div class="font-medium text-gray-900" x-text="hotspot.provinsi || 'Unknown Province'"></div>
+                                                        <div class="text-gray-500" x-text="hotspot.kabkota || 'Unknown District'"></div>
+                                                        <div class="text-gray-400" x-text="formatCoordinates(hotspot.latitude, hotspot.longitude)"></div>
+                                                    </div>
+                                                </template>
                                             </div>
                                         </div>
                                     </div>
@@ -642,25 +1207,25 @@
                                             <i class="fas fa-chart-line text-blue-600 mt-1"></i>
                                             <div>
                                                 <p class="text-sm font-medium text-blue-900">Data Analysis</p>
-                                                <p class="text-xs text-blue-700">Loading analysis...</p>
+                                                <p class="text-xs text-blue-700" x-text="'Processing ' + hotspots.length + ' hotspot detections'"></p>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="p-3 bg-green-50 rounded-lg">
                                         <div class="flex items-start space-x-3">
-                                            <i class="fas fa-chart-bar text-green-600 mt-1"></i>
+                                            <i class="fas fa-satellite text-green-600 mt-1"></i>
                                             <div>
-                                                <p class="text-sm font-medium text-green-900">Trend Analysis</p>
-                                                <p class="text-xs text-green-700">Fetching trend data...</p>
+                                                <p class="text-sm font-medium text-green-900">Satellite Coverage</p>
+                                                <p class="text-xs text-green-700" x-text="getSatelliteTypes().length + ' satellites active'"></p>
                                             </div>
                                         </div>
                                     </div>
                                     <div class="p-3 bg-purple-50 rounded-lg">
                                         <div class="flex items-start space-x-3">
-                                            <i class="fas fa-weather-sun text-purple-600 mt-1"></i>
+                                            <i class="fas fa-map-marked-alt text-purple-600 mt-1"></i>
                                             <div>
-                                                <p class="text-sm font-medium text-purple-900">Weather Impact</p>
-                                                <p class="text-xs text-purple-700">Analyzing conditions...</p>
+                                                <p class="text-sm font-medium text-purple-900">Geographic Coverage</p>
+                                                <p class="text-xs text-purple-700" x-text="getProvinceCount() + ' provinces monitored'"></p>
                                             </div>
                                         </div>
                                     </div>
@@ -685,9 +1250,9 @@
                                         <i class="fas fa-file-alt mr-2"></i>
                                         Generate Reports
                                     </a>
-                                    <button type="button" class="block w-full bg-gradient-to-r from-orange-50 to-red-50 hover:from-orange-100 hover:to-red-100 text-orange-700 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-orange-100">
+                                    <button type="button" @click="exportData()" class="block w-full bg-gradient-to-r from-orange-50 to-red-50 hover:from-orange-100 hover:to-red-100 text-orange-700 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border border-orange-100">
                                         <i class="fas fa-download mr-2"></i>
-                                        Export Data
+                                        Export Indonesian Data
                                     </button>
                                 </div>
                             </div>
@@ -713,11 +1278,40 @@
                                 </div>
                             </div>
                             <div class="p-6">
-                                <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl h-64 flex items-center justify-center border border-blue-100">
-                                    <div class="text-center">
-                                        <i class="fas fa-chart-line text-4xl text-blue-300 mb-3"></i>
-                                        <p class="text-blue-600 font-medium">Analytics Loading</p>
-                                        <p class="text-sm text-blue-500">Processing data models...</p>
+                                <!-- Risk Summary Stats -->
+                                <div class="grid grid-cols-2 gap-4 mb-6">
+                                    <div class="bg-red-50 rounded-lg p-4 text-center">
+                                        <div class="text-2xl font-bold text-red-600" x-text="calculateRisk().high"></div>
+                                        <div class="text-xs text-red-700">High Risk</div>
+                                    </div>
+                                    <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                                        <div class="text-2xl font-bold text-yellow-600" x-text="calculateRisk().medium"></div>
+                                        <div class="text-xs text-yellow-700">Medium Risk</div>
+                                    </div>
+                                </div>
+
+                                <!-- Risk Analysis Details -->
+                                <div class="space-y-3">
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                        <div class="flex items-center space-x-3">
+                                            <i class="fas fa-fire text-red-500"></i>
+                                            <span class="text-sm font-medium text-gray-900">Active Hotspots</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-900" x-text="hotspots.length"></span>
+                                    </div>
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                        <div class="flex items-center space-x-3">
+                                            <i class="fas fa-percentage text-blue-500"></i>
+                                            <span class="text-sm font-medium text-gray-900">Avg Confidence</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-900" x-text="calculateAverageConfidence() + '%'"></span>
+                                    </div>
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                        <div class="flex items-center space-x-3">
+                                            <i class="fas fa-thermometer-half text-orange-500"></i>
+                                            <span class="text-sm font-medium text-gray-900">Avg Brightness</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-900" x-text="calculateAverageBrightness() + 'K'"></span>
                                     </div>
                                 </div>
                             </div>
@@ -743,19 +1337,53 @@
                                     <template x-for="notification in notifications.slice(0, 6)" :key="notification.id">
                                         <div class="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors duration-200">
                                             <div class="flex-shrink-0 mt-1">
-                                                <div class="w-2 h-2 rounded-full" 
+                                                <div class="w-3 h-3 rounded-full" 
                                                      :class="{
-                                                         'bg-red-500': notification.severity === 'high',
+                                                         'bg-red-500 animate-pulse': notification.severity === 'high',
                                                          'bg-yellow-500': notification.severity === 'medium',
                                                          'bg-blue-500': notification.severity === 'low'
                                                      }"></div>
                                             </div>
                                             <div class="flex-1 min-w-0">
-                                                <p class="text-sm font-medium text-gray-900" x-text="notification.message"></p>
-                                                <p class="text-xs text-gray-500" x-text="notification.time"></p>
+                                                <div class="flex items-start justify-between">
+                                                    <div>
+                                                        <p class="text-sm font-medium text-gray-900" x-text="notification.message"></p>
+                                                        <p class="text-xs text-gray-500" x-text="notification.time"></p>
+                                                    </div>
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ml-2" 
+                                                          :class="{
+                                                              'bg-red-100 text-red-800': notification.severity === 'high',
+                                                              'bg-yellow-100 text-yellow-800': notification.severity === 'medium',
+                                                              'bg-blue-100 text-blue-800': notification.severity === 'low'
+                                                          }" 
+                                                          x-text="notification.type.toUpperCase()"></span>
+                                                </div>
                                             </div>
                                         </div>
                                     </template>
+                                    
+                                    <!-- Real-time Activity Summary -->
+                                    <div x-show="notifications.length > 0" class="mt-4 p-3 bg-blue-50 rounded-lg">
+                                        <div class="flex items-center justify-between">
+                                            <div class="text-sm font-medium text-blue-900">Activity Summary</div>
+                                            <div class="text-xs text-blue-700">Last 24h</div>
+                                        </div>
+                                        <div class="mt-2 grid grid-cols-3 gap-4 text-center">
+                                            <div>
+                                                <div class="text-lg font-bold text-blue-600" x-text="notifications.filter(n => n.severity === 'high').length"></div>
+                                                <div class="text-xs text-blue-700">High Alerts</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-lg font-bold text-blue-600" x-text="notifications.filter(n => n.type === 'system').length"></div>
+                                                <div class="text-xs text-blue-700">System Events</div>
+                                            </div>
+                                            <div>
+                                                <div class="text-lg font-bold text-blue-600" x-text="notifications.length"></div>
+                                                <div class="text-xs text-blue-700">Total Events</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
                                     <div x-show="notifications.length === 0" class="text-center py-8">
                                         <i class="fas fa-satellite-dish text-3xl text-gray-300 mb-3"></i>
                                         <p class="text-gray-500">Connecting to data stream...</p>
@@ -767,6 +1395,287 @@
                                         View all activity 
                                         <i class="fas fa-arrow-right ml-1"></i>
                                     </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NASA FIRMS Hotspot Data Section -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+                    <!-- Recent Hotspots Table -->
+                    <div class="gradient-border hover-lift">
+                        <div class="gradient-border-content">
+                            <div class="px-6 py-4 border-b border-gray-100">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">Recent Indonesian Hotspots</h3>
+                                        <p class="text-sm text-gray-500">
+                                            <span x-show="hotspots.length > 0">
+                                                Showing <span x-text="Math.min(hotspots.length, 8)"></span> of <span x-text="hotspots.length"></span> detected hotspots
+                                            </span>
+                                            <span x-show="hotspots.length === 0">
+                                                Latest fire detections from Indonesian satellite monitoring
+                                            </span>
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium" 
+                                              :class="{
+                                                  'bg-green-100 text-green-800': realtimeStatus === 'connected',
+                                                  'bg-yellow-100 text-yellow-800': realtimeStatus === 'connecting',
+                                                  'bg-red-100 text-red-800': realtimeStatus === 'error'
+                                              }">
+                                            <i class="fas fa-satellite mr-1"></i>
+                                            <span x-text="realtimeStatus === 'connected' ? 'Live Data' : 
+                                                         realtimeStatus === 'connecting' ? 'Connecting...' : 'Error'"></span>
+                                        </span>
+                                        <button @click="loadIndoHotspotData()" 
+                                                :disabled="refreshing"
+                                                class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors duration-200"
+                                                :class="{ 'animate-spin': refreshing }">
+                                            <i class="fas fa-sync-alt h-4 w-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-6">
+                                <!-- Loading State -->
+                                <div x-show="refreshing" class="text-center py-12">
+                                    <div class="inline-flex flex-col items-center">
+                                        <div class="relative">
+                                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                                            <div class="absolute top-0 left-0 w-12 h-12 rounded-full border-2 border-gray-200"></div>
+                                        </div>
+                                        <p class="mt-4 text-gray-600 font-medium">Loading Indonesian Hotspot Data...</p>
+                                        <p class="mt-1 text-sm text-gray-500">Fetching real-time satellite detections</p>
+                                        <div class="mt-2 flex items-center space-x-1 text-xs text-gray-400">
+                                            <span>Source:</span>
+                                            <span class="font-medium">Indonesian Hotspot API</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Hotspots List -->
+                                <div x-show="!refreshing" class="space-y-4 max-h-80 overflow-y-auto">
+                                    <template x-for="hotspot in hotspots.slice(0, 8)" :key="hotspot.id">
+                                        <div class="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors duration-200 border border-gray-200">
+                                            <div class="flex-shrink-0 mt-1">
+                                                <div class="w-12 h-12 rounded-lg flex items-center justify-center shadow-sm" 
+                                                     :class="{
+                                                         'bg-red-100': hotspot.severity === 'high',
+                                                         'bg-yellow-100': hotspot.severity === 'medium',
+                                                         'bg-green-100': hotspot.severity === 'low'
+                                                     }">
+                                                    <i class="fas fa-fire text-lg" 
+                                                       :class="{
+                                                           'text-red-600': hotspot.severity === 'high',
+                                                           'text-yellow-600': hotspot.severity === 'medium',
+                                                           'text-green-600': hotspot.severity === 'low'
+                                                       }"></i>
+                                                </div>
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <!-- Header with Province and Severity -->
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <div class="flex flex-col">
+                                                        <p class="text-sm font-semibold text-gray-900">
+                                                            <span x-text="hotspot.provinsi || 'Unknown Province'"></span>
+                                                        </p>
+                                                        <p class="text-xs text-gray-600" x-show="hotspot.kabupaten">
+                                                            <i class="fas fa-map-marker-alt mr-1"></i>
+                                                            <span x-text="hotspot.kabupaten"></span>
+                                                            <span x-show="hotspot.kecamatan" x-text="', ' + hotspot.kecamatan"></span>
+                                                        </p>
+                                                    </div>
+                                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium" 
+                                                          :class="getSeverityColor(hotspot.severity)" 
+                                                          x-text="hotspot.severity.toUpperCase()"></span>
+                                                </div>
+                                                
+                                                <!-- Coordinates -->
+                                                <div class="mb-2">
+                                                    <p class="text-xs text-gray-500">
+                                                        <i class="fas fa-globe mr-1"></i>
+                                                        <span x-text="formatCoordinates(hotspot.latitude, hotspot.longitude)"></span>
+                                                    </p>
+                                                </div>
+                                                
+                                                <!-- Technical Details -->
+                                                <div class="grid grid-cols-3 gap-2 mb-2">
+                                                    <div class="text-center p-2 bg-white rounded border">
+                                                        <div class="text-xs font-medium text-gray-900" x-text="hotspot.brightness + 'K'"></div>
+                                                        <div class="text-xs text-gray-500">Brightness</div>
+                                                    </div>
+                                                    <div class="text-center p-2 bg-white rounded border">
+                                                        <div class="text-xs font-medium text-gray-900" x-text="hotspot.confidence + '%'"></div>
+                                                        <div class="text-xs text-gray-500">Confidence</div>
+                                                    </div>
+                                                    <div class="text-center p-2 bg-white rounded border">
+                                                        <div class="text-xs font-medium text-gray-900" x-text="(hotspot.frp || 0).toFixed(1) + ' MW'"></div>
+                                                        <div class="text-xs text-gray-500">FRP</div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Time and Satellite Info -->
+                                                <div class="flex items-center justify-between text-xs text-gray-400">
+                                                    <div class="flex items-center space-x-2">
+                                                        <span>
+                                                            <i class="fas fa-clock mr-1"></i>
+                                                            <span x-text="hotspot.acq_time"></span>
+                                                        </span>
+                                                        <span>
+                                                            <i class="fas fa-calendar mr-1"></i>
+                                                            <span x-text="hotspot.acq_date"></span>
+                                                        </span>
+                                                    </div>
+                                                    <div class="flex items-center">
+                                                        <i class="fas fa-satellite mr-1"></i>
+                                                        <span x-text="hotspot.satellite || 'Unknown'"></span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Additional Location Info -->
+                                                <div x-show="hotspot.desa || hotspot.kawasan" class="mt-2 pt-2 border-t border-gray-200">
+                                                    <div class="text-xs text-gray-500">
+                                                        <span x-show="hotspot.desa">
+                                                            <i class="fas fa-home mr-1"></i>
+                                                            Desa: <span x-text="hotspot.desa"></span>
+                                                        </span>
+                                                        <span x-show="hotspot.kawasan" class="ml-2">
+                                                            <i class="fas fa-tree mr-1"></i>
+                                                            Kawasan: <span x-text="hotspot.kawasan"></span>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    
+                                    <!-- Empty State -->
+                                    <div x-show="hotspots.length === 0" class="text-center py-12">
+                                        <div class="mb-4">
+                                            <i class="fas fa-satellite-dish text-6xl text-gray-300 mb-4"></i>
+                                        </div>
+                                        <h3 class="text-lg font-medium text-gray-900 mb-2">No Hotspots Available</h3>
+                                        <p class="text-gray-500 mb-4">No Indonesian hotspot data has been loaded yet.</p>
+                                        <div class="space-y-2">
+                                            <button @click="loadIndoHotspotData()" 
+                                                    class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors duration-200">
+                                                <i class="fas fa-refresh mr-2"></i>
+                                                Fetch Latest Hotspot Data
+                                            </button>
+                                            <p class="text-xs text-gray-400">
+                                                Click the button above to load real-time data from Indonesian Hotspot API
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-4 pt-4 border-t border-gray-100">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center space-x-4 text-xs text-gray-500">
+                                            <span x-show="hotspots.length > 0">
+                                                Last updated: <span x-text="lastUpdate || 'Never'"></span>
+                                            </span>
+                                            <span x-show="hotspots.filter(h => h.is_active).length > 0" class="text-green-600">
+                                                <i class="fas fa-circle text-xs mr-1"></i>
+                                                <span x-text="hotspots.filter(h => h.is_active).length"></span> currently active
+                                            </span>
+                                        </div>
+                                        <div class="flex items-center space-x-2">
+                                            <a href="/laporan" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 flex items-center">
+                                                View all hotspots 
+                                                <i class="fas fa-arrow-right ml-1"></i>
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Indonesian API Status & Info -->
+                    <div class="gradient-border hover-lift">
+                        <div class="gradient-border-content">
+                            <div class="px-6 py-4 border-b border-gray-100">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">Indonesian Hotspot API Status</h3>
+                                        <p class="text-sm text-gray-500">Real-time Indonesian satellite monitoring information</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-6">
+                                <div class="space-y-6">
+                                    <!-- API Configuration Info -->
+                                    <div class="bg-blue-50 rounded-lg p-4">
+                                        <div class="flex items-start space-x-3">
+                                            <i class="fas fa-info-circle text-blue-600 mt-1"></i>
+                                            <div>
+                                                <h4 class="text-sm font-medium text-blue-900">API Configuration</h4>
+                                                <div class="mt-2 text-xs text-blue-700 space-y-1">
+                                                    <p><span class="font-medium">Satellites:</span> <span x-text="indoHotspotConfig.satelit.join(', ')"></span></p>
+                                                    <p><span class="font-medium">Confidence:</span> <span x-text="indoHotspotConfig.confidence.join(', ')"></span></p>
+                                                    <p><span class="font-medium">Late Hours:</span> <span x-text="indoHotspotConfig.late + ' hours'"></span></p>
+                                                    <p><span class="font-medium">Last Update:</span> <span x-text="lastUpdate || 'Never'"></span></p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Statistics Summary -->
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div class="text-center p-4 bg-gray-50 rounded-lg">
+                                            <div class="text-2xl font-bold text-gray-900" x-text="hotspots.length"></div>
+                                            <div class="text-xs text-gray-500">Total Detected</div>
+                                        </div>
+                                        <div class="text-center p-4 bg-gray-50 rounded-lg">
+                                            <div class="text-2xl font-bold text-green-600" x-text="hotspots.filter(h => h.is_active).length"></div>
+                                            <div class="text-xs text-gray-500">Currently Active</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Data Quality Indicators -->
+                                    <div class="space-y-3 mt-4">
+                                        <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                                            <div class="flex items-center space-x-3">
+                                                <div class="w-3 h-3 bg-green-400 rounded-full" 
+                                                     :class="realtimeStatus === 'connected' ? 'animate-pulse' : ''"></div>
+                                                <span class="text-sm font-medium text-green-900">API Status</span>
+                                            </div>
+                                            <span class="text-sm text-green-700 capitalize" x-text="realtimeStatus"></span>
+                                        </div>
+                                        <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                                            <div class="flex items-center space-x-3">
+                                                <i class="fas fa-chart-bar text-blue-600"></i>
+                                                <span class="text-sm font-medium text-blue-900">Data Confidence</span>
+                                            </div>
+                                            <span class="text-sm text-blue-700" x-text="calculateAverageConfidence() + '%'"></span>
+                                        </div>
+                                        <div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                                            <div class="flex items-center space-x-3">
+                                                <i class="fas fa-globe-asia text-purple-600"></i>
+                                                <span class="text-sm font-medium text-purple-900">Coverage</span>
+                                            </div>
+                                            <span class="text-sm text-purple-700" x-text="getProvinceCount() + ' provinces'"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Quick Actions -->
+                                    <div class="space-y-3">
+                                        <button type="button" @click="refreshNASAData()" 
+                                                :disabled="fetchingNASA"
+                                                class="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200">
+                                            <i class="fas fa-satellite mr-2" :class="{ 'animate-spin': fetchingNASA }"></i>
+                                            <span x-text="fetchingNASA ? 'Fetching...' : 'Refresh Indonesian Data'"></span>
+                                        </button>
+                                        <button type="button" 
+                                                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-3 rounded-lg text-sm font-medium transition-colors duration-200">
+                                            <i class="fas fa-download mr-2"></i>
+                                            Export Hotspot Data
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -850,7 +1759,9 @@
                 </div>
             </div>
         </main>
-    </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                   
 
     <!-- Dashboard JavaScript -->
     <script>
