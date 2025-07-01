@@ -21,6 +21,8 @@ class Navlink extends Component
      */
     public function render(): View|Closure|string
     {
-        return view('components.navlink');
+        // Mengubah 'navlink' menjadi 'nav-link' sesuai dengan konvensi penamaan Blade Component
+        // Laravel akan mencari file resources/views/components/nav-link.blade.php
+        return view('components.nav-link');
     }
 }
