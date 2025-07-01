@@ -1,72 +1,44 @@
-<x-guest-layout>
-    {{-- Judul "Lupa Kata Sandi?" --}}
-    <h2 class="text-center text-3xl font-bold text-gray-900 mb-6">
-        Lupa Kata Sandi?
-    </h2>
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full bg-gradient-to-br from-blue-50 to-indigo-100">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    {{-- Deskripsi --}}
-    <p class="mb-6 block text-sm font-medium text-gray-700">
-        Tidak masalah. Cukup beritahu kami alamat email Anda dan kami akan mengirimkan tautan reset kata sandi yang memungkinkan Anda memilih yang baru.
-    </p>
+    <title>{{ config('app.name', 'Laravel') }}</title>
 
-    {{-- Session Status --}}
-    @if (session('status'))
-        <div class="mb-4 p-4 bg-green-50 border border-green-200 rounded-md dark:bg-text-gray-900 dark:border-green-700">
-            <p class="text-sm  text-gray-900">{{ session('status') }}</p>
-        </div>
-    @endif
+    <link rel="preconnect" href="https://fonts.bunny.net">
+    <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
 
-    <form method="POST" action="{{ route('password.email') }}" class="space-y-6">
-        @csrf
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-        {{-- Input Email --}}
-        <div>
-            <label for="email" class="block text-sm font-medium text-gray-900">
-                Alamat Email
-            </label>
-            <div class="mt-1 relative">
-                <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    value="{{ old('email') }}"
-                    required
-                    autofocus
-                    autocomplete="email"
-                    class="appearance-none block w-full px-3 py-2 pl-10 border @error('email') border-red-300 @else border-gray-300 @enderror rounded-md placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    placeholder="Masukkan alamat email Anda"
-                >
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="fas fa-envelope text-gray-400"></i>
-                </div>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+</head>
+<body class="h-full font-sans text-gray-900 antialiased" x-data="{ showPassword: false }">
+    <div class="min-h-full flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div class="sm:mx-auto sm:w-full sm:max-w-md">
+            <div class="flex flex-col items-center">
+                <a href="/">
+                    {{-- Ini adalah div yang meniru logo lingkaran biru --}}
+                    <div class="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mb-4 shadow-md">
+                        <i class="fas fa-fire text-white text-2xl"></i> {{-- Kamu bisa ganti ikon ini --}}
+                    </div>
+                </a>
+                <h2 class="text-center text-3xl font-bold text-gray-900">
+                    Hotspot Vigilance
+                </h2>
+                <p class="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+                    Silakan masukkan detail login Anda
+                </p>
             </div>
-            @error('email')
-                <p class="mt-1 text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
-            @enderror
         </div>
 
-        {{-- Tombol Kirim --}}
-        <div>
-            <button
-                type="submit"
-                class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 transform hover:scale-105"
-            >
-                <span class="absolute left-0 inset-y-0 flex items-center pl-3">
-                    <i class="fas fa-paper-plane text-indigo-300 group-hover:text-indigo-200"></i>
-                </span>
-                {{ __('Kirim Tautan Reset Kata Sandi') }}
-            </button>
+        <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+            {{-- Ini adalah kotak form utama dengan background putih --}}
+            <div class="bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-gray-200">
+                {{ $slot }}
+            </div>
         </div>
-
-        {{-- Link Kembali ke Login --}}
-        <div class="mt-6 text-center">
-            <a
-                href="{{ route('login') }}"
-                class="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition-colors duration-200 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-                <i class="fas fa-arrow-left mr-2"></i>
-                Kembali ke halaman Login
-            </a>
-        </div>
-    </form>
-</x-guest-layout>
+    </div>
+</body>
+</html>
